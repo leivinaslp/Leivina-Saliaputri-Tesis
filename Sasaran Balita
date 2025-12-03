@@ -40,7 +40,6 @@ D_full <- cbind(1, D) ;D_full # ukuran: 22 × 5
 # ======================= MATRIKS RATA RATA KESELURUHAN (OVERALL MEAN)
 m <- colMeans(Y)
 Xm <- matrix(1, nrow = N, ncol = 1) %*% t(m)
-# dapet data kota , trs bikin 22
 
 # ======================= ESTIMASI KOEFISIEN REGRESI
 # 4. Estimasi parameter (q_hat) dan hitung efek kecamatan
