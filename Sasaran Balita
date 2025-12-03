@@ -1,4 +1,6 @@
 rm(list=ls())
+setwd("/Users/leivinasalia/Downloads")
+# =================================================== SASARAN BALITA
 datakel_kel <- read.csv("fix y1-y6 spes y7-y12 sen.csv", sep = ";", dec=",");head(datakel_kel)
 
 # Ambil data kolom sasaran BALITA saja
