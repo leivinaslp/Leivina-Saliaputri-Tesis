@@ -1,0 +1,334 @@
+rm(list=ls())
+setwd("/Users/leivinasalia/Downloads")
+# =================================================== SASARAN CATIN DAN PUS
+datakel_kel <- read.csv("fix y1-y6 spes y7-y12 sen.csv", sep = ";", dec=",");head(datakel_kel)
+
+# Ambil data kolom sasaran CATIN DAN PUS saja
+datakel = datakel_kel[, c(11, 12, 13,14)] ; datakel
+
+# =================================================== ASCA
+Yey=as.matrix(datakel);Yey
+N <- nrow(Yey)
+P <- ncol(Yey)
+
+y1 <- (Yey[,1]-mean(Yey[,1]))/(sd(Yey[,1]))*sqrt((N-1)/N)
+y2 <- (Yey[,2]-mean(Yey[,2]))/(sd(Yey[,2]))*sqrt((N-1)/N)
+y3 <- (Yey[,3]-mean(Yey[,3]))/(sd(Yey[,3]))*sqrt((N-1)/N)
+y4 <- (Yey[,4]-mean(Yey[,4]))/(sd(Yey[,4]))*sqrt((N-1)/N)
+datastandar <- data.frame(x1=c(y1), x2=c(y2),x3=c(y3),x4=c(y4))
+Y <- as.matrix(datastandar);Y
+round(Y,4)
+
+# Buat faktor kecamatan sesuai pembagian kelurahan
+kecamatan <- factor(rep(
+  c("A","B","C","D","E"), 
+  times = c(5, 4, 4, 5, 4)
+))
+
+
+# ======================= MEMBENTUK MATRIKS D 
+D <- matrix(0, nrow = N, ncol = 4)
+D[1:5, 1]   <- 1   # Kecamatan A
+D[6:9, 2]   <- 1   # Kecamatan B
+D[10:13, 3] <- 1   # Kecamatan C
+D[14:18, 4] <- 1   # Kecamatan D
+D[19:22, ]  <- -1  # Kecamatan E → sum-to-zero coding
+
+# MATRIKS D
+D_full <- cbind(1, D) ;D_full # ukuran: 22 × 5
+
+# ======================= MATRIKS RATA RATA KESELURUHAN (OVERALL MEAN)
+m <- colMeans(Y)
+Xm <- matrix(1, nrow = N, ncol = 1) %*% t(m)
+
+# ======================= ESTIMASI KOEFISIEN REGRESI
+# 4. Estimasi parameter (q_hat) dan hitung efek kecamatan
+qhat <- list()
+Xaa <- matrix(0, nrow = N, ncol = P)
+# P = 5 variabel
+# p = 1,...,5 variabel
+for (p in 1:P) {
+  y_p <- Y[, p, drop = FALSE]
+  q <- solve(t(D_full) %*% D_full) %*% t(D_full) %*% y_p
+  qhat[[p]] <- q
+  # Gunakan hanya kolom 2–5 untuk efek kecamatan (tanpa intercept)
+  Ca <- c(0, 1, 1, 1, 1)
+  Xaa[, p] <- D_full %*% diag(Ca) %*% q
+}
+qhat
+
+# ======================= VEKTOR EFEK UNTUK SETIAP VARIABEL
+Xaa[, 1] #variabel 1
+Xaa[, 2] #variabel 2
+Xaa[, 3] #variabel 3
+Xaa[, 4] #variabel 4
+
+# =======================  MATRIKS EFEK KECAMATAN
+Xaa
+Xa_kecamatan_df <- aggregate(Xaa, by = list(Kecamatan = kecamatan), FUN = mean)
+Xa <- as.matrix(Xa_kecamatan_df[, -1])  # hilangkan kolom nama kecamatan
+dimnames(Xa) <- NULL  # hilangkan nama baris & kolom
+Xa
+
+# =======================  MATRIKS EFEK RESIDUAL
+# 5. Hitung residual
+Xe <- Y - Xm - Xaa
+Xe
+# jadi Xm + Xa + Xe = Y
+Y
+Xm
+Xaa
+Xe
+round(Xaa,3)
+round(Xe,3)
+
+# ======================= UJI PERMUTASI 
+# Model penuh : Y = Xm + Xa + Xe
+# Hitung model reduksi (tanpa efek kecamatan) (Y = Xm + XE_reduced)
+E_reduced <- Y - Xm  # Ambil Residual model reduksi (Y - Xm)
+#E_reduced adalah variasi dalam data yang tidak terkait faktor kecamatan
+#kita mengacak bagian residualnya saja untuk melihat
+#apakah faktor "kecamatan" benar2 memberikan pengaruh signifikan atau tidak
+
+# Permutasi residual dari model reduksi (tanpa kecamatan)
+set.seed(123)  # Menetapkan seed agar permutasi dapat direproduksi
+E_reduced_perm <- E_reduced[sample(1:N), ]  # Permutasi acak residual
+#mengacak E_reduced, untuk menguji apakah pengaruh kec signifikan
+#dgn membandingkan variasi dari permutasi residual thdp variasi data asli
+
+# Bangun data permutasi
+X_perm <- Xm + E_reduced_perm
+#menambahkan kembali Xm ke residual yg telah diacak
+
+# Hitung model penuh untuk data permutasi dan jumlah kuadrat faktor kecamatan
+Xaa_perm <- matrix(0, nrow = N, ncol = P)
+for (p in 1:P) {
+  y_p <- X_perm[, p, drop = FALSE]  # Ambil data untuk variabel p
+  q_perm <- solve(t(D_full) %*% D_full) %*% t(D_full) %*% y_p
+  Ca <- c(0, 1, 1, 1, 1)  # Matriks kontras efek kecamatan
+  Xaa_perm[, p] <- D_full %*% diag(Ca) %*% q_perm
+}
+#menghitung efek kecamatan pada data permutasi
+
+# Hitung jumlah kuadrat faktor kecamatan untuk data permutasi
+SSQ_A_perm <- sum(Xaa_perm^2)
+
+# Ulangi proses permutasi sebanyak K kali
+K <- 1000  # Jumlah permutasi
+SSQ_A_permuted <- numeric(K)  # Vektor untuk menyimpan SSQ_A permutasi
+
+for (i in 1:K) {
+  E_reduced_perm <- E_reduced[sample(1:N), ]  # Permutasi residual
+  X_perm <- Xm + E_reduced_perm  # Bangun data permutasi
+  Xaa_perm <- matrix(0, nrow = N, ncol = P)
+  
+  for (p in 1:P) {
+    y_p <- X_perm[, p, drop = FALSE]  # Ambil data untuk variabel p
+    q_perm <- solve(t(D_full) %*% D_full) %*% t(D_full) %*% y_p
+    Ca <- c(0, 1, 1, 1, 1)  # Matriks kontras efek kecamatan
+    Xaa_perm[, p] <- D_full %*% diag(Ca) %*% q_perm
+  }
+  
+  # Hitung jumlah kuadrat faktor kecamatan untuk permutasi ini
+  SSQ_A_permuted[i] <- sum(Xaa_perm^2)
+}
+
+# Hitung nilai p
+SSQ_A <- sum(Xaa^2)  # Jumlah kuadrat faktor kecamatan dari data asli
+p_value <- (sum(SSQ_A_permuted >= SSQ_A) + 1) / (K + 1)
+#membandingkan SSQ_A data asli dengan distribusi nilai SSQ_A_perm
+#jumlah kejadian dimana nilai SSQ_A_perm yg dihasilkan lebih besar 
+#atau sm dengan SSQ_A data asli, dibagi jumlah permutasi + 1
+
+# Tampilkan hasil
+cat("Nilai p:", round(p_value, 4), "\n")
+if (p_value < 0.05) {
+  cat("Efek kecamatan SIGNIFIKAN (p < 0.05)\n")
+} else {
+  cat("Efek kecamatan TIDAK SIGNIFIKAN (p ≥ 0.05)\n")
+}
+SSQ_A
+mean(SSQ_A_permuted)
+
+#jika nilai SSQ_A data asli lebih besar dibanding distribusi SSQ_A_perm
+#artinya, pengaruh kecamatan signifikan, bukan kebetulan.
+# EFEK KECAMATAN SIGNIFIKAN
+
+# --- Histogram SSQ_A_permuted dengan garis vertikal untuk SSQ_A ---
+# Plot histogram
+hist(SSQ_A_permuted,
+     breaks = 30,
+     main = "Distribusi SSQ(A) Hasil Permutasi",
+     xlab = "SSQ(A) Permutasi",
+     ylab = "Frekuensi",
+     col = "lightgray",
+     border = "white")
+
+# Tambahkan garis vertikal untuk nilai SSQ(A) data asli
+abline(v = SSQ_A, col = "red", lwd = 3)
+
+# Tambahkan legenda
+legend("topright",
+       legend = c("SSQ(A) Data Asli"),
+       col = c("red"),
+       lwd = 3,
+       bty = "n")
+
+mean(SSQ_A_permuted)
+
+# PCA BIPLOT PADA EFEK KECAMATAN 
+y1 <- (Xa[,1]-mean(Xa[,1]))/(sd(Xa[,1]))*sqrt((N-1)/N)
+y2 <- (Xa[,2]-mean(Xa[,2]))/(sd(Xa[,2]))*sqrt((N-1)/N)
+y3 <- (Xa[,3]-mean(Xa[,3]))/(sd(Xa[,3]))*sqrt((N-1)/N)
+y4 <- (Xa[,4]-mean(Xa[,4]))/(sd(Xa[,4]))*sqrt((N-1)/N)
+datastandar <- data.frame(x1=c(y1), x2=c(y2),x3=c(y3),x4=c(y4))
+XA <- as.matrix(datastandar);XA
+round(XA,4)
+
+X = XA
+Xt <- t(X)
+XtX <- Xt%*%X
+round(XtX,3)
+eigen(XtX)
+
+# MATRIKS L
+Nilai_eigen <- eigen(XtX)$value
+L <- diag(Nilai_eigen^(1/2)) ; L
+
+# MATRIKS A
+Vektor_eigen <- eigen(XtX)$vector
+A <- Vektor_eigen ; A
+round(A,3)
+At <- t(A) ; At
+
+# MATRIKS U
+Linv <- solve(L)
+U <- X%*%A%*%Linv ;U
+round(U,3)
+
+# IDENTIFIKASI PERSENTASE KERAGAMAN DATA
+pca_kec <- prcomp(X, scale. = TRUE)
+summary(pca_kec)
+
+# MATRIKS BARIS (G) DAN MATRIKS KOLOM (H)
+alpha <- 0.5
+G <- U%*%L^alpha; round(G,3)
+H <- A%*%L^alpha; round(H,3)
+G2 <- G[,1:2] ; G2
+H2 <- H[,1:2] ; H2
+round(G2,3)
+round(H2,3)
+
+# Biplot dengan tampilan rapi
+par(xpd = TRUE)   # pastikan clipping aktif
+biplot(G2, H2,
+       xlab = "PC1 = 67.03 %",
+       ylab = "PC2 = 25.96 %",
+       cex = 0.6,           # ukuran titik objek
+       cex.lab = 1.2,       # ukuran label sumbu
+       cex.axis = 1.1,      # ukuran angka sumbu
+       col = c("black", "red")  # objek hitam, vektor merah
+)
+
+# Tambah garis horizontal & vertikal
+par(xpd = FALSE) 
+abline(h = 0, v = 0, col = "black", lwd = 1.2)
+
+
+#======== IDENTIFIKASI HASIL BIPLOT =========
+# KORELASI ANTAR OBJEK DAN VARIABEL
+# install.packages("geometry")
+library(geometry)
+korelasi_obvar <- function(X, Y) {
+  p <- nrow(X)
+  q <- nrow(Y)
+  r <- matrix(, nrow = p, ncol = q)
+  for (i in 1:p) {
+    for (j in 1:q) {
+      r[i, j] <- dot(X[i, ], Y[j, ]) / (sqrt(sum(X[i, ]^2)) *
+                                          sqrt(sum(Y[j, ]^2)))
+    }
+  }
+  print(r)
+}
+obvar<- korelasi_obvar(G2, H2)
+obvar_3_KEC <- round(obvar,3);obvar_3_KEC
+
+# PCA BIPLOT PADA EFEK KELURAHAN DALAM KECAMATAN (NESTED) 
+y1 <- (Xe[,1]-mean(Xe[,1]))/(sd(Xe[,1]))*sqrt((N-1)/N)
+y2 <- (Xe[,2]-mean(Xe[,2]))/(sd(Xe[,2]))*sqrt((N-1)/N)
+y3 <- (Xe[,3]-mean(Xe[,3]))/(sd(Xe[,3]))*sqrt((N-1)/N)
+y4 <- (Xe[,4]-mean(Xe[,4]))/(sd(Xe[,4]))*sqrt((N-1)/N)
+datastandar <- data.frame(x1=c(y1), x2=c(y2),x3=c(y3),x4=c(y4))
+XE <- as.matrix(datastandar);XE
+round(XE,4)
+
+X = XE
+Xt <- t(X)
+XtX <- Xt%*%X
+round(XtX,3)
+eigen(XtX)
+
+# MATRIKS L
+Nilai_eigen <- eigen(XtX)$value
+L <- diag(Nilai_eigen^(1/2)) ; L
+
+# MATRIKS A
+Vektor_eigen <- eigen(XtX)$vector
+A <- Vektor_eigen ; A
+round(A,3)
+At <- t(A) ; At
+
+# MATRIKS U
+Linv <- solve(L)
+U <- X%*%A%*%Linv ;U
+round(U,3)
+
+# IDENTIFIKASI PERSENTASE KERAGAMAN DATA
+pca_kec <- prcomp(X, scale. = TRUE)
+summary(pca_kec)
+
+# MATRIKS BARIS (G) DAN MATRIKS KOLOM (H)
+alpha <- 0.5
+G <- U%*%L^alpha; G
+H <- A%*%L^alpha; H
+G2 <- G[,1:2] ; G2
+H2 <- H[,1:2] ; H2
+round(G2,3)
+round(H2,3)
+
+# Biplot dengan tampilan rapi
+par(xpd = TRUE)   # pastikan clipping aktif
+biplot(G2, H2,
+       xlab = "PC1 = 47.47 %",
+       ylab = "PC2 = 33.03 %",
+       cex = 0.6,           # ukuran titik objek
+       cex.lab = 1.2,       # ukuran label sumbu
+       cex.axis = 1.1,      # ukuran angka sumbu
+       col = c("black", "red")  # objek hitam, vektor merah
+)
+
+# Tambah garis horizontal & vertikal
+par(xpd = FALSE) 
+abline(h = 0, v = 0, col = "black", lwd = 1.2)
+
+
+#======== IDENTIFIKASI HASIL BIPLOT =========
+# KORELASI ANTAR OBJEK DAN VARIABEL
+# install.packages("geometry")
+library(geometry)
+korelasi_obvar <- function(X, Y) {
+  p <- nrow(X)
+  q <- nrow(Y)
+  r <- matrix(, nrow = p, ncol = q)
+  for (i in 1:p) {
+    for (j in 1:q) {
+      r[i, j] <- dot(X[i, ], Y[j, ]) / (sqrt(sum(X[i, ]^2)) *
+                                          sqrt(sum(Y[j, ]^2)))
+    }
+  }
+  print(r)
+}
+obvar<- korelasi_obvar(G2, H2)
+obvar_3_KEL <- round(obvar,3);obvar_3_KEL
+
